@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-FastAPI Research Endpoint
+FastAPI Research Endpoint with Environment Variables
 Usage: GET /research?query=your+research+topic
 """
 
@@ -19,6 +18,11 @@ import uuid
 import asyncio
 from typing import Optional
 import uvicorn
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -29,33 +33,49 @@ app = FastAPI(
 
 class SchoolabResearchAPI:
     def __init__(self):
-        # Your credentials
-        self.supabase_url = "https://aggqkemnrfvogfmjcjsr.supabase.co/"
-        self.supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnZ3FrZW1ucmZ2b2dmbWpjanNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ4MzM3NjksImV4cCI6MjA3MDQwOTc2OX0.BWwrzo5FfagEujmPowftkIZPw3zw5OjgEIBv3hya5tk"
-        self.openai_key = "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"
-        self.news_api_key = "ff32962b372a4d258774c9d18695aa59"
+        # Load credentials from environment variables
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_KEY") 
+        self.openai_key = os.getenv("OPENAI_KEY")
+        self.news_api_key = os.getenv("NEWS_API_KEY")
+        
+        # Validate required environment variables
+        required_vars = {
+            "SUPABASE_URL": self.supabase_url,
+            "SUPABASE_KEY": self.supabase_key, 
+            "OPENAI_KEY": self.openai_key
+        }
+        
+        missing_vars = [var for var, value in required_vars.items() if not value]
+        if missing_vars:
+            raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
         
         # Initialize clients
-        self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
-        self.openai_client = OpenAI(api_key=self.openai_key)
+        try:
+            self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
+            self.openai_client = OpenAI(api_key=self.openai_key)
+            print("✅ API clients initialized successfully")
+        except Exception as e:
+            raise ValueError(f"Failed to initialize API clients: {e}")
     
     def search_multiple_sources(self, query, max_articles_per_source=5):
         """Search multiple news sources"""
         all_articles = []
         
-        # 1. Google News
+        # 1. Google News (always available)
         articles = self.search_google_news(query, max_articles_per_source)
         all_articles.extend(articles)
         
-        # 2. NewsAPI
-        articles = self.search_newsapi(query, max_articles_per_source)
-        all_articles.extend(articles)
+        # 2. NewsAPI (optional if API key available)
+        if self.news_api_key:
+            articles = self.search_newsapi(query, max_articles_per_source)
+            all_articles.extend(articles)
         
-        # 3. Bing News
+        # 3. Bing News (always available)
         articles = self.search_bing_news(query, max_articles_per_source)
         all_articles.extend(articles)
         
-        # 4. Reddit
+        # 4. Reddit (always available)
         articles = self.search_reddit(query, max_articles_per_source)
         all_articles.extend(articles)
         
@@ -85,7 +105,10 @@ class SchoolabResearchAPI:
             return []
     
     def search_newsapi(self, query, max_results):
-        """Search NewsAPI"""
+        """Search NewsAPI (only if API key available)"""
+        if not self.news_api_key:
+            return []
+            
         try:
             url = "https://newsapi.org/v2/everything"
             params = {
@@ -314,7 +337,7 @@ Respond with JSON array:
         report += f"""
 ## Research Methodology
 
-- **Sources:** Google News, NewsAPI, Bing News, Reddit
+- **Sources:** Google News, Bing News, Reddit{', NewsAPI' if self.news_api_key else ''}
 - **AI Analysis:** GPT-3.5-turbo relevance scoring
 - **Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
@@ -371,7 +394,12 @@ Respond with JSON array:
         }, None
 
 # Initialize the research API
-research_api = SchoolabResearchAPI()
+try:
+    research_api = SchoolabResearchAPI()
+    print("✅ Research API initialized successfully")
+except Exception as e:
+    print(f"❌ Failed to initialize Research API: {e}")
+    research_api = None
 
 @app.get("/")
 async def root():
@@ -379,6 +407,7 @@ async def root():
     return {
         "message": "Schoolab Research API",
         "version": "1.0.0",
+        "status": "healthy" if research_api else "initialization_failed",
         "endpoints": {
             "research": "/research?query=your+research+topic",
             "health": "/health",
@@ -389,12 +418,24 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    if not research_api:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "error": "API not initialized",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    
     try:
         # Test database connection
         result = research_api.supabase.table("schoolab").select("id").limit(1).execute()
         return {
             "status": "healthy",
             "database": "connected",
+            "openai": "configured",
+            "newsapi": "configured" if research_api.news_api_key else "not_configured",
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
@@ -410,15 +451,10 @@ async def health_check():
 
 @app.get("/research")
 async def research_endpoint(query: str):
-    """
-    Main research endpoint
+    """Main research endpoint"""
+    if not research_api:
+        raise HTTPException(status_code=503, detail="API not properly initialized")
     
-    Parameters:
-    - query: Research topic/question (required)
-    
-    Returns:
-    - JSON with research results and database record ID
-    """
     if not query or len(query.strip()) < 3:
         raise HTTPException(status_code=400, detail="Query must be at least 3 characters long")
     
@@ -440,6 +476,9 @@ async def research_endpoint(query: str):
 @app.get("/recent")
 async def recent_research():
     """Get recent research records"""
+    if not research_api:
+        raise HTTPException(status_code=503, detail="API not properly initialized")
+    
     try:
         result = research_api.supabase.table("schoolab").select(
             "id, query, created_at"
@@ -456,6 +495,9 @@ async def recent_research():
 @app.get("/research/{record_id}")
 async def get_research_by_id(record_id: str):
     """Get specific research record by ID"""
+    if not research_api:
+        raise HTTPException(status_code=503, detail="API not properly initialized")
+    
     try:
         result = research_api.supabase.table("schoolab").select("*").eq("id", record_id).execute()
         
@@ -472,19 +514,16 @@ async def get_research_by_id(record_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve record: {str(e)}")
 
-# Background task version for longer research
 @app.post("/research/async")
 async def research_async(background_tasks: BackgroundTasks, query: str):
-    """
-    Asynchronous research endpoint for longer queries
-    Returns immediately with task ID, research runs in background
-    """
+    """Asynchronous research endpoint"""
+    if not research_api:
+        raise HTTPException(status_code=503, detail="API not properly initialized")
+    
     if not query or len(query.strip()) < 3:
         raise HTTPException(status_code=400, detail="Query must be at least 3 characters long")
     
     task_id = str(uuid.uuid4())
-    
-    # Add background task
     background_tasks.add_task(research_api.research, query.strip())
     
     return {
@@ -496,8 +535,8 @@ async def research_async(background_tasks: BackgroundTasks, query: str):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "fastapi_research_endpoint:app", 
+        "app:app",  # FIXED: Now correctly references app.py
         host="0.0.0.0", 
-        port=8000, 
+        port=int(os.getenv("PORT", 8000)), 
         reload=True
     )
