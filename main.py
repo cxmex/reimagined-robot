@@ -14,8 +14,7 @@ from bs4 import BeautifulSoup
 class SimpleNewsResearcher:
     def __init__(self):
         # Replace with your actual API keys
-        self.news_api_key = "ff32962b372a4d258774c9d18695aa59"
-        self.openai_api_key = "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"
+        self.news_api_key = ""
         self.base_url = "https://newsapi.org/v2/"
         
         # Initialize OpenAI client (new v1.0+ syntax)
