@@ -8,4 +8,6 @@ newspaper3k
 beautifulsoup4
 python-dateutil
 python-dotenv
-lxml
+lxml[html_clean]
+lxml_html_clean
+EOF
