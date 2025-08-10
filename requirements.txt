@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+supabase
+openai
+requests
+feedparser
+newspaper3k
+beautifulsoup4
+python-dateutil
+python-dotenv
+lxml
+EOF
